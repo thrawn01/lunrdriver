@@ -1,0 +1,12 @@
+Source: lunrdriver
+Maintainer: Jay Payne <letterj@racklabs.com>
+Section: python
+Priority: optional
+Build-Depends: python-setuptools (>= 0.6b3), python-all (>= 2.6.6-3), debhelper (>= 7)
+Standards-Version: 3.9.1
+
+Package: python-lunrdriver
+Architecture: all
+Depends: ${misc:Depends}, ${python:Depends}
+Description: Lunr Driver
+

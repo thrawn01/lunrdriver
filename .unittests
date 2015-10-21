@@ -1,0 +1,6 @@
+#!/bin/bash
+nosetests testlunrdriver/unit/driver --exe --with-coverage --cover-package \
+    lunrdriver.driver --cover-erase $@
+RV=$?
+rm -f .coverage
+exit $RV
