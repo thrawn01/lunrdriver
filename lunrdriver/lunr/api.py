@@ -87,9 +87,9 @@ class API(CinderAPI):
             # getting an 'error' volume.
             self._validate_lunr_volume_type(volume_type, size)
 
-            if CONF.lunr_copy_image_disabled:
+            if not CONF.lunr_copy_image_enabled:
                 image_id = None
-            if CONF.lunr_volume_clone_disabled:
+            if not CONF.lunr_volume_clone_enabled:
                 source_volume = None
             if snapshot:
                 if self._is_lunr_volume_type(context,
