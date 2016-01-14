@@ -25,9 +25,9 @@ lunr_opts = [
                help='Lunr API endpoint'),
     cfg.ListOpt('lunr_volume_types', default=[],
                help='Types belonging to Lunr'),
-    cfg.BoolOpt('lunr_volume_clone_disabled', default=False,
+    cfg.BoolOpt('lunr_volume_clone_enabled', default=True,
                 help='Disable create from source.'),
-    cfg.BoolOpt('lunr_copy_image_disabled', default=False,
+    cfg.BoolOpt('lunr_copy_image_enabled', default=True,
                 help='Disable create from image.'),
 ]
 
