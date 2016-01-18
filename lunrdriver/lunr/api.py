@@ -101,6 +101,8 @@ class API(CinderAPI):
                     source_volume['volume_type_id'] = volume_type['id']
 
         kwargs = {}
+        if snapshot is not None:
+            kwargs['snapshot'] = snapshot
         if image_id is not None:
             kwargs['image_id'] = image_id
         if volume_type is not None:
