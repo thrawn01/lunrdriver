@@ -93,7 +93,8 @@ class TestLunrDriver(DriverTestCase):
         d = driver.LunrDriver(configuration=self.configuration)
         update = d.create_volume(volume)
         self.assert_(self.request_callback.called)
-        self.assertEquals(update, {'host': 'foo'})
+        self.assertEquals(update['host'], 'foo')
+        self.assertTrue(update.has_key('admin_metadata'))
 
     def test_create_volume_with_meta(self):
         MetaEntry = namedtuple('MetaEntry', ['key', 'value'])
@@ -114,9 +115,10 @@ class TestLunrDriver(DriverTestCase):
         d = driver.LunrDriver(configuration=self.configuration)
         update = d.create_volume(volume)
         self.assert_(self.request_callback.called)
-        self.assertEquals(update, {'host': 'foo',
-                                   'metadata': {'foo': 'bar',
-                                                'storage-node': 'nodeuuid'}})
+        self.assertEquals(update['host'], 'foo')
+        self.assertEquals(update['metadata'], {'foo': 'bar',
+                                               'storage-node': 'nodeuuid'})
+        self.assertTrue(update.has_key('admin_metadata'))
 
     def test_create_volume_with_affinity(self):
         MetaEntry = namedtuple('MetaEntry', ['key', 'value'])
@@ -138,9 +140,10 @@ class TestLunrDriver(DriverTestCase):
         d = driver.LunrDriver(configuration=self.configuration)
         update = d.create_volume(volume)
         self.assert_(self.request_callback.called)
-        self.assertEquals(update, {'host': 'foo',
-                                   'metadata': {'different_node': 'foo,bar,baz',
-                                                'storage-node': 'nodeuuid'}})
+        self.assertEquals(update['host'], 'foo')
+        self.assertEquals(update['metadata'], {'different_node': 'foo,bar,baz',
+                                               'storage-node': 'nodeuuid'})
+        self.assertTrue(update.has_key('admin_metadata'))
 
     def test_create_volume_from_snapshot(self):
         volume = {'name': 'vol1', 'size': 5, 'project_id': 100,
@@ -152,7 +155,7 @@ class TestLunrDriver(DriverTestCase):
                 return
             self.assertEquals(req.get_method(), 'PUT')
             url = urlparse(req.get_full_url())
-            self.assertEquals(url.path, '/v1.0/100/volumes/%s' % volume['id'])
+            self.assertEquals(url.path, '/v1.0/100/volumes/%s' % '123-456')
             data = urldecode(url.query)
             self.assertEquals(data['volume_type_name'], 'vtype')
             self.assertEquals(data['backup'], snapshot['id'])
@@ -169,13 +172,19 @@ class TestLunrDriver(DriverTestCase):
         with patch(client, 'sleep', no_sleep):
             update = d.create_volume_from_snapshot(volume, snapshot)
         self.assertEquals(len(self.request_callback.called), 3)
-        self.assertEquals(update, {'size': 1, 'host': 'foo'})
+        self.assertEquals(update, {'size': 1, 'host': 'foo',
+                                   'admin_metadata': {'lunr_id': '123-456'}})
+        self.assertTrue(update.has_key('admin_metadata'))
 
     def test_create_cloned_volume(self):
         volume = {'name': 'vol1', 'size': 5, 'project_id': 100,
                   'id': '123-456', 'volume_type': {'name': 'vtype'}}
+        source_lunr_id = 'lunr_src_volid'
+        MetaEntry = namedtuple('MetaEntry', ['key', 'value'])
+        meta = MetaEntry('lunr_id', source_lunr_id)
         source = {'name': 'vol2', 'size': 5, 'project_id': 100,
-                  'id': '234-567', 'volume_type': {'name': 'vtype'}}
+                  'id': '234-567', 'volume_type': {'name': 'vtype'},
+                  'volume_admin_metadata': [meta]}
         def callback(req):
             if len(self.request_callback.called) > 1:
                 self.assertEquals(req.get_method(), 'GET')
@@ -185,7 +194,7 @@ class TestLunrDriver(DriverTestCase):
             self.assertEquals(url.path, '/v1.0/100/volumes/%s' % volume['id'])
             data = urldecode(url.query)
             self.assertEquals(data['volume_type_name'], 'vtype')
-            self.assertEquals(data['source_volume'], source['id'])
+            self.assertEquals(data['source_volume'], source_lunr_id)
         self.request_callback = callback
         building_status = json.dumps({
             'status': 'BUILDING',
@@ -438,7 +447,12 @@ class TestLunrDriver(DriverTestCase):
             callback = callbacks.pop(0)
             callback(req)
 
+        class MockDB:
+            def volume_get(self, ctx, volume_id):
+                return {'id': volume_id}
+
         d = driver.LunrDriver(configuration=self.configuration)
+        d.db = MockDB()
         with patch(client, 'sleep', no_sleep):
             d.create_snapshot(snapshot)
         self.assertEquals(len(self.request_callback.called), 3)
@@ -493,7 +507,12 @@ class TestLunrDriver(DriverTestCase):
             callback = callbacks.pop(0)
             callback(req)
 
+        class MockDB:
+            def volume_get(self, ctx, volume_id):
+                return {'id': volume_id}
+
         d = driver.LunrDriver(configuration=self.configuration)
+        d.db = MockDB()
         with patch(client, 'sleep', no_sleep):
             self.assertRaises(client.StatusError, d.create_snapshot, snapshot)
         self.assertEquals(len(self.request_callback.called), 3)
