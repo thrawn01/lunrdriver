@@ -88,6 +88,9 @@ class LunrVolumeResource(LunrResource):
 
     resource_path = 'volumes'
 
+    def update(self, _id, **params):
+        return self.client._execute('POST', self.get_path(_id), **params)
+
 
 class LunrExportResource(LunrResource):
 

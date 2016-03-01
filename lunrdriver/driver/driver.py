@@ -216,13 +216,19 @@ class LunrDriver(VolumeDriver):
                       mountpoint):
         """Update lunr export metadata."""
         client = LunrClient(self.url, volume, logger=LOG)
-        return client.exports.update(volume['id'], instance_id=instance_uuid,
-                                     mountpoint=mountpoint, status='ATTACHED')
+        client.exports.update(volume['id'], instance_id=instance_uuid,
+                              mountpoint=mountpoint, status='ATTACHED')
 
     def detach_volume(self, context, volume, attachment=None):
         """Update lunr export metadata."""
         client = LunrClient(self.url, volume, logger=LOG)
-        return client.exports.update(volume['id'], instance_id=None)
+        client.exports.update(volume['id'], instance_id=None)
+
+    def accept_transfer(self, context, volume, new_user, new_project):
+        if new_project == volume['project_id']:
+            return
+        client = LunrClient(self.url, volume, logger=LOG)
+        client.volumes.update(volume['id'], account_id=new_project)
 
     def get_volume_stats(self, refresh=False):
         """
