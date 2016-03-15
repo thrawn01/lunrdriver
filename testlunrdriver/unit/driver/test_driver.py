@@ -223,7 +223,7 @@ class TestLunrDriver(DriverTestCase):
         self.resp = [json.dumps({'size': 1}), building_status, active_status]
         d = driver.LunrDriver(configuration=self.configuration)
         with patch(client, 'sleep', no_sleep):
-            d.clone_image(volume, image_location, image_id, {})
+            d.clone_image('unused', volume, image_location, image_id, {})
         self.assertEquals(len(self.request_callback.called), 3)
 
     def test_failed_volume_create(self):
