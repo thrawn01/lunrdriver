@@ -113,8 +113,8 @@ class LunrDriver(VolumeDriver):
         return model_update
 
     def clone_image(self, context, volume,
-                    image_location, image_id, image_meta):
-        model_update = self._create_volume(volume, image_id=image_id)
+                    image_location, image_meta, image_service):
+        model_update = self._create_volume(volume, image_id=image_meta['id'])
 
         # Wait until the snapshot is ACTIVE
         client = LunrClient(self.url, volume, logger=LOG)

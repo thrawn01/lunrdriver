@@ -203,7 +203,7 @@ class TestLunrDriver(DriverTestCase):
         volume = {'name': 'vol1', 'size': 5, 'project_id': 100,
                   'id': '123-456', 'volume_type': {'name': 'vtype'}}
         image_location = "somewhere over the rainbow"
-        image_id = 'image_id_1'
+        image_meta = {'id': 'image_id_1'}
         def callback(req):
             if len(self.request_callback.called) > 1:
                 self.assertEquals(req.get_method(), 'GET')
@@ -212,7 +212,7 @@ class TestLunrDriver(DriverTestCase):
             url = urlparse(req.get_full_url())
             self.assertEquals(url.path, '/v1.0/100/volumes/%s' % volume['id'])
             data = urldecode(url.query)
-            self.assertEquals(data['image_id'], image_id)
+            self.assertEquals(data['image_id'], image_meta['id'])
         self.request_callback = callback
         building_status = json.dumps({
             'status': 'BUILDING',
@@ -223,7 +223,8 @@ class TestLunrDriver(DriverTestCase):
         self.resp = [json.dumps({'size': 1}), building_status, active_status]
         d = driver.LunrDriver(configuration=self.configuration)
         with patch(client, 'sleep', no_sleep):
-            d.clone_image('unused', volume, image_location, image_id, {})
+            d.clone_image('unused', volume, image_location, image_meta,
+                          'image_service')
         self.assertEquals(len(self.request_callback.called), 3)
 
     def test_failed_volume_create(self):
