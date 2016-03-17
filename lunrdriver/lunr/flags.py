@@ -33,3 +33,17 @@ lunr_opts = [
 
 CONF = cfg.CONF
 CONF.register_opts(lunr_opts)
+
+
+# This is a dirty hack for working around liberty requiring keystone
+# authtoken middleware
+keystone_authtoken_opts = [
+    cfg.StrOpt('auth_uri',
+               default=None,
+               # FIXME(dolph): should be default='http://127.0.0.1:5000/v2.0/',
+               # or (depending on client support) an unversioned, publicly
+               # accessible identity endpoint (see bug 1207517)
+               help='Complete public Identity API endpoint.'),
+]
+
+CONF.register_opts(keystone_authtoken_opts, group='keystone_authtoken')
