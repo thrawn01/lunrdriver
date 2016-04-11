@@ -75,9 +75,11 @@ class API(CinderAPI):
                 raise exception.InvalidInput(reason=msg)
 
     def create(self, context, size, name, description, snapshot=None,
-                image_id=None, volume_type=None, metadata=None,
-                availability_zone=None, source_volume=None,
-                scheduler_hints=None, multiattach=None):
+               image_id=None, volume_type=None, metadata=None,
+               availability_zone=None, source_volume=None,
+               scheduler_hints=None,
+               source_replica=None, consistencygroup=None,
+               cgsnapshot=None, multiattach=False, source_cg=None):
 
         if not volume_type:
             volume_type = volume_types.get_default_volume_type()
@@ -117,6 +119,14 @@ class API(CinderAPI):
             kwargs['scheduler_hints'] = scheduler_hints
         if multiattach is not None:
             kwargs['multiattach'] = multiattach
+        if source_replica is not None:
+            kwargs['source_replica'] = source_replica
+        if consistencygroup is not None:
+            kwargs['consistencygroup'] = consistencygroup
+        if cgsnapshot is not None:
+            kwargs['cgsnapshot'] = cgsnapshot
+        if source_cg is not None:
+            kwargs['source_cg'] = source_cg
 
         return super(API, self).create(context, size, name, description,
                                        **kwargs)
