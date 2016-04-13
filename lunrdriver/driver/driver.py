@@ -43,22 +43,20 @@ class LunrDriver(VolumeDriver):
 
     def update_migrated_volume(self, ctxt, volume, new_volume,
                                original_volume_status=None):
-        updates = {}
+        updates = {'_name_id': new_volume['_name_id'] or
+                   new_volume['id'],
+                   'provider_location':
+                   new_volume['provider_location']}
         if new_volume.get('volume_metadata'):
             for meta in new_volume.get('volume_metadata', []):
                 if meta['key'] == 'storage-node':
                     updates['metadata'] = {'storage-node': meta['value']}
-        if new_volume.get('volume_admin_metadata'):
-            for meta in new_volume.get('volume_admin_metadata', []):
-                if meta['key'] == 'lunr_id':
-                    updates['admin_metadata'] = {'lunr_id': meta['value']}
         return updates
 
     def _create_volume(self, volume, snapshot=None, source=None,
                        image_id=None):
         model_update = {}
         model_update_meta = {}
-        model_update_admin_meta = {}
         affinity = None
         lunr_id = volume['id']
         if volume.get('volume_metadata'):
@@ -104,6 +102,7 @@ class LunrDriver(VolumeDriver):
             if e.code == 409:
                 lunr_id = str(uuid4())
                 resp = client.volumes.create(lunr_id, **params)
+                model_update['_name_id'] = lunr_id
             else:
                 raise
 
@@ -113,31 +112,21 @@ class LunrDriver(VolumeDriver):
             model_update['host'] = resp.body['cinder_host']
         if resp.body.get('node_id'):
             model_update_meta['storage-node'] = resp.body['node_id']
-        model_update_admin_meta['lunr_id'] = lunr_id
 
         # return any model changes that cinder should make
         if model_update_meta:
             model_update['metadata'] = model_update_meta
-        if model_update_admin_meta:
-            model_update['admin_metadata'] = model_update_admin_meta
         return model_update
 
     def create_volume(self, volume):
         """Call the Lunr API to request a volume """
         return self._create_volume(volume)
 
-    def _lookup_model_update_volume_id(self, volume, model_update):
-        if volume.get('admin_metadata'):
-            for k, v in volume.get('admin_metadata', []):
-                if k == 'lunr_id':
-                    return v
-        return volume['id']
-
-    def _lookup_volume_id(self, volume):
-        if volume.get('volume_admin_metadata'):
-            for meta in volume.get('volume_admin_metadata', []):
-                if meta.key == 'lunr_id':
-                    return meta.value
+    def _lookup_volume_id(self, volume, model_update=None):
+        if model_update and model_update.get('_name_id'):
+            return model_update['_name_id']
+        if volume.get('_name_id'):
+            return volume['_name_id']
         return volume['id']
 
     def create_cloned_volume(self, volume, src_vref):
@@ -146,7 +135,7 @@ class LunrDriver(VolumeDriver):
 
         # Wait until the volume is ACTIVE
         client = LunrClient(self.url, volume, logger=LOG)
-        volume_id = self._lookup_model_update_volume_id(volume, model_update)
+        volume_id = self._lookup_volume_id(volume, model_update)
         client.volumes.wait_on_status(volume_id, 'ACTIVE')
 
         return model_update
@@ -157,7 +146,7 @@ class LunrDriver(VolumeDriver):
 
         # Wait until the snapshot is ACTIVE
         client = LunrClient(self.url, volume, logger=LOG)
-        volume_id = self._lookup_model_update_volume_id(volume, model_update)
+        volume_id = self._lookup_volume_id(volume, model_update)
         client.volumes.wait_on_status(volume_id, 'ACTIVE')
 
         return model_update
@@ -168,7 +157,7 @@ class LunrDriver(VolumeDriver):
 
         # Wait until the snapshot is ACTIVE
         client = LunrClient(self.url, volume, logger=LOG)
-        volume_id = self._lookup_model_update_volume_id(volume, model_update)
+        volume_id = self._lookup_volume_id(volume, model_update)
         client.volumes.wait_on_status(volume_id, 'ACTIVE', 'IMAGING_SCRUB')
 
         return model_update, True
