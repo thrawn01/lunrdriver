@@ -17,7 +17,10 @@
 import json
 import time
 import urllib2
-from webob.exc import HTTPUnauthorized, HTTPServiceUnavailable
+import redis
+from datetime import datetime, timedelta
+from collections import defaultdict
+from webob.exc import HTTPUnauthorized, HTTPServiceUnavailable, HTTPNotFound
 
 try:
     from oslo_log import log as logging
@@ -31,12 +34,59 @@ class InvalidUserToken(Exception):
     pass
 
 
+class LogThrottler():
+
+    def __init__(self, burst=5, timeLimit=5):
+        self.timeLimit = timeLimit
+        self.cache = defaultdict(int)
+        self.timeWindow = None
+        self.limit = burst
+        self.count = 0
+        self.start()
+
+    def start(self):
+        self.timeWindow = datetime.now() + timedelta(seconds=self.timeLimit)
+
+    def error(self, message):
+        self.log(message, logger=LOG.error)
+
+    def info(self, message):
+        self.log(message, logger=LOG.info)
+
+    def debug(self, message):
+        LOG.debug(message)
+
+    def exception(self, message):
+        self.log(message, logger=LOG.exception)
+
+    def log(self, message, logger=LOG.info):
+        if message in self.cache:
+            count = self.cache[message]
+            # Have reached our burst limit?
+            if count > self.limit:
+                # Are we inside our time limit?
+                if self.timeWindow > datetime.now():
+                    remain = (self.timeWindow - datetime.now()).total_seconds()
+                    # Omit Logging this message
+                    logger("%s - To many messages throttling for %d secs"
+                           % (message, remain))
+                    return
+                else:
+                    self.start()
+                    del self.cache[message]
+        self.cache[message] += 1
+        logger(message)
+
+
 class RackAuth(object):
 
     def __init__(self, conf, app):
+        self.redis_host = conf.get('redis-host', '')
+        self.redis = redis.StrictRedis(host=self.redis_host, port=6379, db=0)
         self.admin_user = conf.get('username', '')
         self.admin_pass = conf.get('password', '')
         self.admin_url = conf.get('url', '')
+        self.log = LogThrottler()
         self._admin_token = None
         self.app = app
 
@@ -46,7 +96,7 @@ class RackAuth(object):
             admin_info = self._auth_request('/v2.0/tokens', method='POST',
                                             admin_request=True)
             self._admin_token = admin_info['access']['token']['id']
-        LOG.debug('admin_token is %r' % self._admin_token)
+        self.log.debug('admin_token is %r' % self._admin_token)
         return self._admin_token
 
     def _auth_request(self, path, method='GET', admin_request=False):
@@ -78,7 +128,7 @@ class RackAuth(object):
                 # this request requires a validate admin token
                 headers['X-Auth-Token'] = self.admin_token
             req_path = self.admin_url + path
-            LOG.debug('req_path: %s - headers: %s' % (req_path, headers))
+            self.log.debug('req_path: %s - headers: %s' % (req_path, headers))
             req = urllib2.Request(req_path, headers=headers, data=body)
             req.get_method = lambda *args: method
             try:
@@ -94,8 +144,8 @@ class RackAuth(object):
                 pass
             if attempt >= attempts:
                 raise
-            LOG.exception('Failed validate token request, '
-                          'attempt %s of %s' % (attempt, attempts))
+            self.log.exception('Failed validate token request, '
+                               'attempt %s of %s' % (attempt, attempts))
             time.sleep(2 ** attempt)
 
     def get_token_info(self, token, account):
@@ -123,27 +173,30 @@ class RackAuth(object):
         :raises : InvalidUserToken
 
         """
-        path = '/v2.0/tokens/%s?belongsTo=%s' % (token, account)
-        try:
-            token_info = self._auth_request(path)
-        except urllib2.HTTPError, e:
-            if e.code == 404:
-                raise InvalidUserToken('token not found')
-            else:
-                raise
+        token_info = self.cache_get(token)
+        if token_info is None:
+            path = '/v2.0/tokens/%s?belongsTo=%s' % (token, account)
+            try:
+                token_info = self._auth_request(path)
+            except urllib2.HTTPError, e:
+                if e.code == 404:
+                    raise InvalidUserToken('token not found')
+                else:
+                    raise
 
-        LOG.debug('token_info: %r' % token_info)
+        self.log.debug('token_info: %r' % token_info)
 
         tenant_info = token_info['access']['token']['tenant']
         if account not in (tenant_info['name'], tenant_info['id']):
             raise InvalidUserToken('token does not match tenant')
+
+        self.cache_get.set(token, token_info, ex=self.redis_expire_secs)
         return token_info
 
     def get_headers(self, token_info):
         tenant_id = token_info['access']['token']['tenant']['id']
         tenant_name = token_info['access']['token']['tenant']['name']
         user_id = token_info['access']['user']['id']
-        user_name = token_info['access']['user']['name']
         roles_list = token_info['access']['user'].get('roles', [])
         roles = ','.join([role['name'] for role in roles_list])
 
@@ -159,32 +212,46 @@ class RackAuth(object):
 
     def __call__(self, environ, start_response):
         try:
-            LOG.debug('path_info: %s' % environ['PATH_INFO'])
+            self.log.debug('path_info: %s' % environ['PATH_INFO'])
             account = environ['PATH_INFO'].lstrip('/').split('/', 1)[0]
-            LOG.debug('account: %s' % account)
+            self.log.debug('account: %s' % account)
         except IndexError:
-            LOG.debug('Unable to pull account from request path')
+            self.log.debug('Unable to pull account from request path')
             return HTTPNotFound()(environ, start_response)
         try:
             token = environ['HTTP_X_AUTH_TOKEN']
         except KeyError:
-            LOG.debug('Unable to pull token from request headers')
+            self.log.debug('Unable to pull token from request headers')
             return HTTPUnauthorized()(environ, start_response)
         try:
-            LOG.debug('Validate token')
+            self.log.debug('Validate token')
             token_info = self.get_token_info(token, account)
         except InvalidUserToken, e:
-            LOG.info('Invalid token (%s)' % e)
+            self.log.info('Invalid token (%s)' % e)
             return HTTPUnauthorized()(environ, start_response)
         except Exception:
-            LOG.exception('Unable to validate token')
+            self.log.exception('Unable to validate token')
             return HTTPServiceUnavailable()(environ, start_response)
-        LOG.info('Token valid')
+        self.log.info('Token valid')
         headers = self.get_headers(token_info)
-        LOG.debug('adding headers -> %r' % headers)
+        self.log.debug('adding headers -> %r' % headers)
         for header, value in headers.items():
             environ['HTTP_' + header.upper().replace('-', '_')] = value
         return self.app(environ, start_response)
+
+    def cache_get(self, key):
+        try:
+            return self.redis.get(key)
+        except redis.RedisError, e:
+            self.log.error("Redis Error: %s" % e)
+            return None
+
+    def cache_set(self, key, value, expire=None):
+        try:
+            return self.redis.set(key, value, ex=expire)
+        except redis.RedisError, e:
+            self.log.error("Redis Error: %s" % e)
+            return None
 
 
 def filter_factory(global_conf, **local_conf):
